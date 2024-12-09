@@ -4,12 +4,7 @@ This implementation is based on Andrej Kharpaty's [repo](https://github.com/karp
 
 ## Download dataset
 
-From tiny_jim.txt in the github 
-
-## Install libtorch
-```bash
-sudo bash script/install_libtorch.sh
-```
+From tiny_.txt in the github 
 
 ## Compile
 ```bash
