@@ -4,7 +4,7 @@ This implementation is based on Andrej Kharpaty's [repo](https://github.com/karp
 
 ## Download dataset
 
-from tiny_jim.txt in the github 
+From tiny_jim.txt in the github 
 
 ## Install libtorch
 ```bash
