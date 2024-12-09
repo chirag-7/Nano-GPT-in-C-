@@ -1,34 +1,49 @@
 #include "bigram_lm.h"
 #include "dataset.h"
-#include <random>
-#include <string>
+#include <torch/torch.h>
 #include <iostream>
+#include <memory>
+#include <string>
 #include <fstream>
+#include <unordered_map>
+#include <vector>
+#include <cassert>
+#include <random> // Include for random number generation
 
+// Function to generate random indices
 std::vector<size_t> random_int(size_t min, size_t max, size_t size) {
-  std::vector<size_t> random_numbers;
-  std::random_device rd;
-  std::mt19937 gen(rd());
-  std::uniform_int_distribution<size_t> dist(min, max);
-  for (int i = 0; i < size; i++) {
-    random_numbers.emplace_back(dist(gen));
-  }
-  return random_numbers;
+    std::vector<size_t> random_numbers;
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<size_t> dist(min, max);
+    for (size_t i = 0; i < size; i++) {
+        random_numbers.emplace_back(dist(gen));
+    }
+    return random_numbers;
 }
 
-std::pair<torch::Tensor, torch::Tensor> get_batch(std::vector<size_t> &split,
+// Function to get a batch of data
+std::pair<torch::Tensor, torch::Tensor> get_batch(const std::vector<size_t> &split,
                                                   const int &block_size,
                                                   const int &batch_size) {
-  auto data_ptr = split.data();
-  std::vector<torch::Tensor> xb;
-  std::vector<torch::Tensor> yb;
-  auto random_idxs = random_int(0, split.size() - block_size, batch_size);
-  for (auto &i : random_idxs) {
-    xb.emplace_back(torch::from_blob(data_ptr + i, {block_size}, torch::kLong));
-    yb.emplace_back(
-        torch::from_blob(data_ptr + (i + 1), {block_size}, torch::kLong));
-  }
-  return std::make_pair(torch::stack(xb), torch::stack(yb));
+    const size_t data_size = split.size();
+    std::vector<torch::Tensor> xb;
+    std::vector<torch::Tensor> yb;
+    auto random_idxs = random_int(0, data_size - block_size - 1, batch_size);
+    for (auto &i : random_idxs) {
+        xb.emplace_back(torch::from_blob(
+            const_cast<size_t*>(&split[i]), // Cast away constness
+            {block_size},
+            torch::kLong
+        ).clone());
+
+        yb.emplace_back(torch::from_blob(
+            const_cast<size_t*>(&split[i + 1]), // Cast away constness
+            {block_size},
+            torch::kLong
+        ).clone());
+    }
+    return std::make_pair(torch::stack(xb), torch::stack(yb));
 }
 
 // Function to generate text
@@ -36,7 +51,8 @@ std::string generate_text(
     std::shared_ptr<BigramLM> model,
     const std::string& seed,
     size_t generate_length,
-    const Dataset& dataset
+    const Dataset& dataset,
+    float temperature = 1.0f // Default temperature
 ) {
     std::string generated = seed;
     std::vector<size_t> input_ids = dataset.encode(seed);
@@ -58,27 +74,43 @@ std::string generate_text(
         // Forward pass
         torch::Tensor logits = model->forward(input_tensor);
 
-        // Get the last timestep's logits
-        torch::Tensor last_logits = logits.slice(/*dim=*/1, /*start=*/-1, /*end=*/-1).squeeze(1); // Shape: [1, vocab_size]
+        // Debugging: Print logits shape
+        std::cout << "Logits shape: " << logits.sizes() << std::endl;
+
+        // Extract last timestep's logits
+        torch::Tensor last_logits = logits.index({torch::indexing::Slice(), -1, torch::indexing::Slice()}).squeeze(0);
+
+        // Check if last_logits is empty
+        if (last_logits.size(0) == 0) {
+            std::cerr << "Error: last_logits is empty. Check model output or slicing logic." << std::endl;
+            return "";
+        }
+
+        // Apply temperature scaling
+        torch::Tensor scaled_logits = last_logits / temperature;
 
         // Apply softmax to get probabilities
-        torch::Tensor probs = torch::softmax(last_logits, /*dim=*/1);
+        torch::Tensor probs = torch::softmax(scaled_logits, /*dim=*/-1);
 
-        // Sample from the distribution
-        torch::Tensor sampled_id = torch::multinomial(probs, /*num_samples=*/1);
+        // Debugging: Print probabilities shape
+        std::cout << "Probabilities shape: " << probs.sizes() << std::endl;
+
+        // Sample from the probability distribution
+        torch::Tensor sampled_id = torch::multinomial(probs, 1);
 
         // Get the sampled token
-        size_t token = sampled_id.item<long>();
+        int64_t token = sampled_id.item<int64_t>();
 
         // Append to the generated text
-        generated += dataset.decode({token});
+        generated += dataset.decode({static_cast<size_t>(token)});
 
         // Append to input_ids for the next prediction
-        input_ids.push_back(token);
+        input_ids.push_back(static_cast<size_t>(token));
     }
 
     return generated;
 }
+
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
@@ -93,7 +125,7 @@ int main(int argc, char* argv[]) {
 
     if (mode == "train") {
         // Training mode
-        std::string dataset_path = "../dataset/custom_dataset/input.txt"; // Ensure this path is correct
+        std::string dataset_path = "/Users/chiragchivate/Documents/QUANT/projects/tiny_jim/nanogpt_cpp-main/tiny_jim.txt"; // Ensure this path is correct
         int block_size = 8;
         int batch_size = 4;
         size_t num_iterations = 100000;
@@ -144,14 +176,19 @@ int main(int argc, char* argv[]) {
     else if (mode == "generate") {
         // Generation mode
         if (argc < 3) {
-            std::cerr << "Usage: " << argv[0] << " generate <seed_text> [generate_length]" << std::endl;
+            std::cerr << "Usage: " << argv[0] << " generate <seed_text> [generate_length] [temperature]" << std::endl;
             return 1;
         }
 
         std::string seed = argv[2];
         size_t generate_length = 100; // Default length
+        float temperature = 1.0f; // Default temperature
+
         if (argc >= 4) {
             generate_length = std::stoul(argv[3]);
+        }
+        if (argc >= 5) {
+            temperature = std::stof(argv[4]);
         }
 
         // Path to the dataset for encoding/decoding
@@ -166,7 +203,6 @@ int main(int argc, char* argv[]) {
         // Load the trained model
         try {
             torch::load(model, "checkpoint.pt");
-            torch::load(model, "checkpoint.pt"); // Load entire model
             std::cout << "Model loaded successfully." << std::endl;
         } catch (const c10::Error& e) {
             std::cerr << "Error loading the model: " << e.what() << std::endl;
@@ -174,7 +210,7 @@ int main(int argc, char* argv[]) {
         }
 
         // Generate text
-        std::string generated_text = generate_text(model, seed, generate_length, dataset);
+        std::string generated_text = generate_text(model, seed, generate_length, dataset, temperature);
         std::cout << "Generated Text:\n" << generated_text << std::endl;
     }
     else {

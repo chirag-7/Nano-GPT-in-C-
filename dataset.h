@@ -8,19 +8,20 @@
 class Dataset {
 
 private:
-  size_t block_size = 0;
-  std::string raw_data = "";
-  std::string vocab = "";
-  std::vector<size_t> train_data;
-  std::vector<size_t> val_data;
+    size_t block_size = 0;
+    std::string raw_data = "";
+    std::string vocab = "";
+    std::vector<size_t> train_data;
+    std::vector<size_t> val_data;
 
 
 public:
-  Dataset(std::string &txt_path, size_t block_size);
-  std::vector<size_t> encode(const std::string &txt);
-  std::string decode(const std::vector<size_t> &idxs);
-  std::vector<size_t> get_train();
-  std::vector<size_t> get_val();
-  size_t get_vocab_size();
+    Dataset(const std::string &txt_path, size_t block_size);
+    std::vector<size_t> encode(const std::string &txt) const;
+    std::string decode(const std::vector<size_t> &idxs) const;
+    std::vector<size_t> get_train() const;
+    std::vector<size_t> get_val() const;
+    size_t get_vocab_size() const;
 };
+
 #endif // SHAKESPEREDATASET_H
