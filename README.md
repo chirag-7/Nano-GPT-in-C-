@@ -4,7 +4,7 @@ This implementation is based on Andrej Kharpaty's [repo](https://github.com/karp
 
 ## Download dataset
 ```bash 
-bash scripts/download_dataset.sh
+from 
 ```
 
 ## Install libtorch
