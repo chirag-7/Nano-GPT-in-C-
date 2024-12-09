@@ -4,7 +4,7 @@ This implementation is based on Andrej Kharpaty's [repo](https://github.com/karp
 
 ## Download dataset
 
-From tiny_.txt in the github 
+From tiny-.txt in the github 
 
 ## Compile
 ```bash
